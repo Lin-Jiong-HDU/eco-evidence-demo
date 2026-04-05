@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import {
   sites,
   getObservationsForSite,
@@ -32,6 +32,8 @@ export default function ReportPage() {
   const [reportGenerated, setReportGenerated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
 
   const selectedSite = sites.find((s) => s.id === selectedSiteId)!;
   const observations = useMemo(
@@ -112,6 +114,50 @@ export default function ReportPage() {
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // fallback: do nothing
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (!reportRef.current || exporting) return;
+    setExporting(true);
+
+    try {
+      const html2canvas = (await import("html2canvas-pro")).default;
+      const { jsPDF } = await import("jspdf");
+
+      const el = reportRef.current;
+      const canvas = await html2canvas(el, {
+        scale: 1.5,
+        useCORS: true,
+        backgroundColor: "#FFFFFF",
+      });
+
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const imgData = canvas.toDataURL("image/jpeg", 0.85);
+
+      const pdf = new jsPDF("p", "mm", "a4");
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft > 0) {
+        position -= pageHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      pdf.save(
+        `eco-evidence-report-${selectedSiteId}-${new Date().toISOString().slice(0, 10)}.pdf`
+      );
+    } catch (err) {
+      console.error("PDF export failed:", err);
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -203,7 +249,7 @@ export default function ReportPage() {
   return (
     <div className="px-4 py-8">
       {/* A4-ratio report area */}
-      <div className="max-w-3xl mx-auto bg-paper rounded-lg shadow-[0_2px_16px_rgba(240,237,229,0.6)] p-8 sm:p-10">
+      <div ref={reportRef} className="max-w-3xl mx-auto bg-paper rounded-lg shadow-[0_2px_16px_rgba(240,237,229,0.6)] p-8 sm:p-10">
         {/* 1. Report Header */}
         <div className="border-b border-bark/10 pb-4">
           <h1 className="text-xl font-semibold text-forest">
@@ -418,9 +464,22 @@ export default function ReportPage() {
 
       {/* Export Actions */}
       <div className="max-w-3xl mx-auto mt-4 flex gap-3">
-        <button className="inline-flex items-center gap-2 rounded-lg bg-forest text-white px-5 h-10 text-sm font-medium hover:bg-leaf transition-colors">
-          <Download className="w-4 h-4" />
-          Export PDF
+        <button
+          onClick={handleExportPDF}
+          disabled={exporting}
+          className="inline-flex items-center gap-2 rounded-lg bg-forest text-white px-5 h-10 text-sm font-medium hover:bg-leaf transition-colors disabled:opacity-60 disabled:cursor-wait"
+        >
+          {exporting ? (
+            <>
+              <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Exporting...
+            </>
+          ) : (
+            <>
+              <Download className="w-4 h-4" />
+              Export PDF
+            </>
+          )}
         </button>
         <button
           onClick={handleShare}
